@@ -1,0 +1,35 @@
+{
+  "test_mode": true,
+  "request_id": "sql-demo-001",
+  "question": "Show monthly completed revenue for 2026 as a bar chart.",
+  "llm_provider": "openai",
+  "output_format": "chart",
+  "guardrails": {
+    "allowed_schemas": ["analytics"],
+    "allowed_tables": ["orders"],
+    "max_rows": 100
+  },
+  "mock_schema": [
+    { "schema": "analytics", "table": "orders", "column": "completed_at", "data_type": "timestamp with time zone" },
+    { "schema": "analytics", "table": "orders", "column": "amount", "data_type": "numeric" },
+    { "schema": "analytics", "table": "orders", "column": "status", "data_type": "text" }
+  ],
+  "mock_plan": {
+    "sql": "SELECT date_trunc('month', completed_at) AS month, SUM(amount) AS revenue FROM analytics.orders WHERE status = $1 AND completed_at >= $2 GROUP BY 1 ORDER BY 1",
+    "params": ["completed", "2026-01-01"],
+    "explanation": "Aggregate completed order revenue by month for 2026.",
+    "output_format": "chart",
+    "chart": { "type": "bar", "x": "month", "y": "revenue", "title": "Monthly completed revenue" }
+  },
+  "mock_rows": [
+    { "month": "2026-01-01", "revenue": 125000 },
+    { "month": "2026-02-01", "revenue": 143500 },
+    { "month": "2026-03-01", "revenue": 138200 }
+  ],
+  "expected": {
+    "allowed": true,
+    "row_count": 3,
+    "output_format": "chart"
+  }
+}
+

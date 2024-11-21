@@ -1,0 +1,707 @@
+{
+  "id": "50151ce1-9af5-4571-b900-344c538ca752",
+  "name": "04A - PostgreSQL Assistant - Natural Language to Safe SQL",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Natural language to SQL\n\nThe workflow parser is defense in depth. The real boundary is a SELECT-only PostgreSQL login, curated schemas, row-level security, and statement timeout.",
+        "width": 540,
+        "height": 320,
+        "color": 4
+      },
+      "id": "b8f1e215-8660-4ee7-b774-5a1573f97982",
+      "name": "SQL Safety Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -460
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "postgres-assistant",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "900dad3a-07d6-4818-bf3b-bca30d4c75dc",
+      "name": "SQL Assistant Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -720,
+        0
+      ],
+      "webhookId": "4619e066-96f9-4f7d-8148-0e756b12f719"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw=$json.body ?? $json; const question=String(raw.question || '').trim(); if(question.length<3) throw new Error('question must contain at least 3 characters'); const allowedFormats=['json','text','chart','xlsx','rtf','html','pdf']; const format=String(raw.output_format || 'json').toLowerCase(); if(!allowedFormats.includes(format)) throw new Error('unsupported output_format'); return [{json:{test_mode:raw.test_mode===true,request_id:String(raw.request_id || ('sql-'+Date.now())),question,llm_provider:String(raw.llm_provider || $env.LLM_PROVIDER || 'gemini').toLowerCase(),output_format:format,guardrails:raw.guardrails || {allowed_schemas:['analytics'],allowed_tables:[],max_rows:500},mock_schema:raw.mock_schema || [],mock_plan:raw.mock_plan || null,mock_rows:raw.mock_rows || []}}];"
+      },
+      "id": "a235bab6-27e3-4dc3-9306-7a21e2a96660",
+      "name": "Normalize SQL Question",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "12fa44ef-c457-47b7-bec5-a73b816ce014",
+              "leftValue": "={{ $json.test_mode }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "66eaf5c4-a04d-42ea-9b46-39f8b7707c47",
+      "name": "SQL Test Mode?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d=$input.first().json; if(!d.mock_plan) throw new Error('mock_plan is required in test mode'); return [{json:{...d,schema:d.mock_schema,plan:d.mock_plan}}];"
+      },
+      "id": "05bff6db-8df2-477a-9996-4a9f1e375088",
+      "name": "Use Mock SQL Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -180
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT table_schema AS schema_name, table_name, column_name, data_type, is_nullable\nFROM information_schema.columns\nWHERE table_schema IN (SELECT jsonb_array_elements_text($1::jsonb))\nORDER BY table_schema, table_name, ordinal_position\nLIMIT 2000;",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.guardrails.allowed_schemas)] }}"
+        }
+      },
+      "id": "991bd583-ab1c-4132-8e58-aba58dfd5b4e",
+      "name": "Load Allowed Schema",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        100
+      ],
+      "notesInFlow": true,
+      "notes": "Use the same SELECT-only assistant credential. Limit metadata to approved schemas."
+    },
+    {
+      "parameters": {
+        "jsCode": "const q=$('Normalize SQL Question').first().json; const schema=$input.all().map(i=>i.json); const system='Generate one read-only PostgreSQL SELECT query. Use only supplied tables and columns. Parameterize every user-derived value as $1, $2, etc. Never use DDL, DML, comments, locks, administrative functions, or multiple statements. Return only JSON.'; const user=JSON.stringify({question:q.question,requested_output:q.output_format,allowed_schema:schema,output_schema:{sql:'string',params:['value'],explanation:'string',output_format:q.output_format,chart:{type:'bar|line|pie',x:'column',y:'column',title:'string'}}}); return [{json:{...q,schema,llm_request:{system,user}}}];"
+      },
+      "id": "54278f83-2846-4b67-9361-b666fbf02d4f",
+      "name": "Build SQL Generation Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        100
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3faaa61d-d947-49b1-a2d1-bbe8f62c10b3",
+              "leftValue": "={{ $json.llm_provider || $json.routing?.llm_provider }}",
+              "rightValue": "openai",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4a5dd22f-8def-4111-bc72-063e33c9b6f2",
+      "name": "SQL Is OpenAI?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1180,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.OPENAI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {model:$env.OPENAI_CHAT_MODEL || 'gpt-5-mini',messages:[{role:'system',content:$json.llm_request.system},{role:'user',content:$json.llm_request.user}],response_format:{type:'json_object'}} }}",
+        "options": {}
+      },
+      "id": "1bda5b46-0b20-458f-8fad-f1e6c1c157f7",
+      "name": "SQL OpenAI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        -60
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "notesInFlow": true,
+      "notes": "Production adapter. Replace environment authentication with an n8n credential before deployment."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "85baebc6-9870-41fe-b52f-b41b58c67d09",
+              "leftValue": "={{ $json.llm_provider || $json.routing?.llm_provider }}",
+              "rightValue": "anthropic",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5f6b8bbe-c1a8-42e0-8979-e699de829684",
+      "name": "SQL Is Anthropic?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1400,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {model:$env.ANTHROPIC_CHAT_MODEL || 'claude-sonnet-5',max_tokens:2500,system:$json.llm_request.system,messages:[{role:'user',content:$json.llm_request.user}]} }}",
+        "options": {}
+      },
+      "id": "710ec719-914c-4e42-8ac2-695399bfa681",
+      "name": "SQL Anthropic",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1640,
+        120
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "notesInFlow": true,
+      "notes": "Production adapter. The model name is environment-configurable to avoid editing the workflow during model upgrades."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/' + ($env.GEMINI_CHAT_MODEL || 'gemini-3.8-flash') + ':generateContent' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-goog-api-key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {systemInstruction:{parts:[{text:$json.llm_request.system}]},contents:[{role:'user',parts:[{text:$json.llm_request.user}]}],generationConfig:{responseMimeType:'application/json'}} }}",
+        "options": {}
+      },
+      "id": "073e7ba7-4cf3-4e22-8dcf-6d7cf23fc7f4",
+      "name": "SQL Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1640,
+        280
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "notesInFlow": true,
+      "notes": "Production Gemini adapter. Keep the API key in an n8n credential or external secret store in production."
+    },
+    {
+      "parameters": {
+        "jsCode": "const base=$('Build SQL Generation Prompt').first().json; const r=$input.first().json.body ?? $input.first().json; let text=base.llm_provider==='openai'?r.choices?.[0]?.message?.content:base.llm_provider==='anthropic'?r.content?.[0]?.text:r.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join(''); if(!text) throw new Error('LLM response missing text'); text=String(text).replace(/^```(?:json)?\\s*/i,'').replace(/\\s*```$/,''); const plan=JSON.parse(text); plan.output_format=base.output_format; return [{json:{...base,plan}}];"
+      },
+      "id": "dafc52bd-118f-47cf-bec7-ef6b57ad4596",
+      "name": "Parse SQL Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        100
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const validate = function validateReadOnlySql(plan, config = {}) {\n  const requested = String(plan?.sql || '').trim();\n  const maxRows = Math.max(1, Math.min(Number(config.max_rows || 500), 5000));\n  const allowedSchemas = (config.allowed_schemas || ['public']).map((v) => String(v).toLowerCase());\n  const allowedTables = (config.allowed_tables || []).map((v) => String(v).toLowerCase());\n  const fail = (reason) => ({ allowed: false, reason, sql: null, params: [], output_format: plan?.output_format || 'json' });\n  if (!requested) return fail('The model returned an empty SQL statement.');\n  if (/--|\\/\\*/.test(requested)) return fail('SQL comments are not allowed.');\n  const withoutTrailing = requested.replace(/;+\\s*$/, '');\n  if (withoutTrailing.includes(';')) return fail('Only one SQL statement is allowed.');\n  if (!/^\\s*(select|with)\\b/i.test(withoutTrailing)) return fail('Only SELECT or WITH queries are allowed.');\n  const scrubbed = withoutTrailing.replace(/'(?:''|[^'])*'/g, \"''\").replace(/\\\"(?:\\\"\\\"|[^\\\"])*\\\"/g, '\"\"');\n  const blocked = /\\b(insert|update|delete|merge|drop|alter|truncate|create|replace|grant|revoke|copy|call|do|vacuum|analyze|refresh|reindex|cluster|listen|notify|lock)\\b|\\bfor\\s+(update|share)\\b|\\binto\\s+(temp|temporary|unlogged|[a-z_])/i;\n  if (blocked.test(scrubbed)) return fail('A write, DDL, locking, or administrative keyword was detected.');\n  if (/\\b(pg_sleep|dblink|lo_import|lo_export|pg_read_file|pg_ls_dir|pg_stat_file|set_config)\\s*\\(/i.test(scrubbed)) return fail('A blocked PostgreSQL function was detected.');\n  const cteNames = new Set([...scrubbed.matchAll(/(?:\\bwith\\b|,)\\s*([a-z_][\\w$]*)\\s+as\\s*\\(/gi)].map((m) => m[1].toLowerCase()));\n  const references = [...scrubbed.matchAll(/\\b(?:from|join)\\s+((?:[a-z_][\\w$]*\\.)?[a-z_][\\w$]*)/gi)].map((m) => m[1].toLowerCase());\n  for (const reference of references) {\n    if (cteNames.has(reference)) continue;\n    const parts = reference.split('.');\n    const schema = parts.length === 2 ? parts[0] : 'public';\n    const table = parts.length === 2 ? parts[1] : parts[0];\n    if (!allowedSchemas.includes(schema)) return fail(`Schema ${schema} is not allowlisted.`);\n    if (allowedTables.length && !allowedTables.includes(table) && !allowedTables.includes(reference)) return fail(`Table ${reference} is not allowlisted.`);\n  }\n  if (!references.length) return fail('No table reference was found.');\n  let sql = withoutTrailing;\n  const limitMatch = sql.match(/\\blimit\\s+(\\d+)\\s*$/i);\n  if (limitMatch) {\n    const requestedLimit = Number(limitMatch[1]);\n    if (requestedLimit > maxRows) sql = sql.replace(/\\blimit\\s+\\d+\\s*$/i, `LIMIT ${maxRows}`);\n  } else {\n    sql = `${sql}\\nLIMIT ${maxRows}`;\n  }\n  const params = Array.isArray(plan?.params) ? plan.params : [];\n  return {\n    allowed: true,\n    reason: null,\n    sql,\n    params,\n    explanation: String(plan?.explanation || ''),\n    output_format: String(plan?.output_format || 'json').toLowerCase(),\n    chart: plan?.chart || null,\n  };\n}; const data=$input.first().json; const result=validate(data.plan,data.guardrails); return [{json:{...data,validation:result}}];"
+      },
+      "id": "fbd886ea-2075-4d7c-a5e6-0d6fcd7d5bf2",
+      "name": "Validate Read Only SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        0
+      ],
+      "notesInFlow": true,
+      "notes": "Single-statement, read-only, allowlist, function, and row-limit checks. Still use a database-enforced read-only role."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "15e52a23-29aa-4e6d-b856-503d0962fa5c",
+              "leftValue": "={{ $json.validation.allowed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7e1a0c6d-0027-471b-8a34-a59b09018a74",
+      "name": "SQL Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d=$input.first().json; return [{json:{status:'rejected',allowed:false,test_mode:d.test_mode,request_id:d.request_id,question:d.question,reason:d.validation.reason,rows:[],row_count:0,completed_at:new Date().toISOString()}}];"
+      },
+      "id": "42a06752-9302-4899-9dfe-169a6f60b2ca",
+      "name": "Rejected SQL Receipt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        180
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7b610ac0-dd0f-420b-9678-26f2e43a36da",
+              "leftValue": "={{ $json.test_mode }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b4d7bdd5-876e-446f-94a1-87bb104304da",
+      "name": "Query Test Mode?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2640,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d=$input.first().json; return [{json:{...d,rows:d.mock_rows}}];"
+      },
+      "id": "e91e807c-9557-441d-95d1-544872bdfc34",
+      "name": "Use Mock Query Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        -220
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.validation.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.validation.params }}"
+        }
+      },
+      "id": "55bbef83-c12b-4cdd-9a73-e8492db035de",
+      "name": "Execute Approved Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2880,
+        20
+      ],
+      "notesInFlow": true,
+      "notes": "This node must use the dedicated SELECT-only role with a statement timeout. Never attach an owner credential."
+    },
+    {
+      "parameters": {
+        "jsCode": "const validated=$('Validate Read Only SQL').first().json; const input=$input.all().map(i=>i.json); const rows=input.length===1 && Array.isArray(input[0].rows)?input[0].rows:input; const cols=rows.length?Object.keys(rows[0]):[]; const esc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); const text=rows.length?[cols.join(' | '),cols.map(()=> '---').join(' | '),...rows.map(r=>cols.map(c=>String(r[c]??'')).join(' | '))].join('\\n'):'No rows returned.'; const html='<html><head><meta charset=\"utf-8\"><title>Query report</title></head><body><h1>Query report</h1><p>'+esc(validated.question)+'</p><table border=\"1\"><thead><tr>'+cols.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+cols.map(c=>'<td>'+esc(r[c])+'</td>').join('')+'</tr>').join('')+'</tbody></table></body></html>'; const spec=validated.validation.chart && rows.length?{type:validated.validation.chart.type || 'bar',data:{labels:rows.map(r=>r[validated.validation.chart.x]),datasets:[{label:validated.validation.chart.title || validated.validation.chart.y,data:rows.map(r=>r[validated.validation.chart.y])}]},options:{plugins:{title:{display:true,text:validated.validation.chart.title || 'Query result'}}}}:null; return [{json:{status:'completed',allowed:true,test_mode:validated.test_mode,request_id:validated.request_id,question:validated.question,sql:validated.validation.sql,params:validated.validation.params,explanation:validated.validation.explanation,output_format:validated.validation.output_format,row_count:rows.length,rows,text,html,chart_config:spec,completed_at:new Date().toISOString()}}];"
+      },
+      "id": "45705746-3bad-42d9-b289-f07aa84fe463",
+      "name": "Build Query Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3160,
+        -40
+      ],
+      "notesInFlow": false
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "SQL Assistant Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize SQL Question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize SQL Question": {
+      "main": [
+        [
+          {
+            "node": "SQL Test Mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SQL Test Mode?": {
+      "main": [
+        [
+          {
+            "node": "Use Mock SQL Plan",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load Allowed Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Allowed Schema": {
+      "main": [
+        [
+          {
+            "node": "Build SQL Generation Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build SQL Generation Prompt": {
+      "main": [
+        [
+          {
+            "node": "SQL Is OpenAI?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SQL Is OpenAI?": {
+      "main": [
+        [
+          {
+            "node": "SQL OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "SQL Is Anthropic?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SQL Is Anthropic?": {
+      "main": [
+        [
+          {
+            "node": "SQL Anthropic",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "SQL Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SQL OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Parse SQL Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SQL Anthropic": {
+      "main": [
+        [
+          {
+            "node": "Parse SQL Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SQL Gemini": {
+      "main": [
+        [
+          {
+            "node": "Parse SQL Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Mock SQL Plan": {
+      "main": [
+        [
+          {
+            "node": "Validate Read Only SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse SQL Plan": {
+      "main": [
+        [
+          {
+            "node": "Validate Read Only SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Read Only SQL": {
+      "main": [
+        [
+          {
+            "node": "SQL Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SQL Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Query Test Mode?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rejected SQL Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Test Mode?": {
+      "main": [
+        [
+          {
+            "node": "Use Mock Query Rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Approved Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Mock Query Rows": {
+      "main": [
+        [
+          {
+            "node": "Build Query Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Approved Query": {
+      "main": [
+        [
+          {
+            "node": "Build Query Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "9085fa45-3aa1-4b2b-8c1d-993e9b96c85f",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [],
+  "description": "Generate, validate, and execute bounded read-only PostgreSQL queries from natural-language questions."
+}

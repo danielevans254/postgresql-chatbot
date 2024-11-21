@@ -1,0 +1,704 @@
+{
+  "id": "96df934a-4608-468f-a535-09ad9f4c56f9",
+  "name": "04B - PostgreSQL Assistant - Output Renderer",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Binary output adapter\n\nRendering is intentionally separate from query execution. A failed converter can be retried without querying the database again. Test mode returns the render plan without external calls.",
+        "width": 520,
+        "height": 300,
+        "color": 4
+      },
+      "id": "f88fedf7-3d0c-4d19-b5ea-f96b1336ec59",
+      "name": "Renderer Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -440
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "postgres-render",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "fe5c9490-8e6f-4c61-a25d-f26e11685127",
+      "name": "Render Output Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "4444ffe0-b6b7-45b2-bbca-fedc3733165b"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw=$json.body ?? $json; const result=raw.result || raw; const format=String(raw.output_format || result.output_format || 'json').toLowerCase(); if(!['json','text','xlsx','rtf','html','chart','pdf'].includes(format)) throw new Error('unsupported output_format'); return [{json:{...result,test_mode:raw.test_mode===true || result.test_mode===true,output_format:format}}];"
+      },
+      "id": "5dc71213-e683-4ef8-9d90-bf66c3102645",
+      "name": "Normalize Render Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        0
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "66023492-a42d-4529-9a74-79f05d3ca499",
+              "leftValue": "={{ $json.test_mode }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "12d48641-cca4-4a7e-b75d-e8318dac5a1c",
+      "name": "Render Test Mode?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d=$input.first().json; return [{json:{status:'render-planned',test_mode:true,output_format:d.output_format,row_count:Array.isArray(d.rows)?d.rows.length:0,external_service:d.output_format==='pdf'?'gotenberg':d.output_format==='chart'?'quickchart':null,has_html:Boolean(d.html),has_chart:Boolean(d.chart_config)}}];"
+      },
+      "id": "e1ba4c29-60c1-4956-91b2-b07552c7935b",
+      "name": "Mock Render Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20,
+        -180
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c4c9d3d2-a256-4d4f-a763-3a0dc2f7daff",
+              "leftValue": "={{ $json.output_format }}",
+              "rightValue": "xlsx",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6fc1ffaa-8ba8-4bcb-b0b7-d83417b7a1cd",
+      "name": "Render XLSX?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        20,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d=$input.first().json; return (d.rows || []).map(row=>({json:row}));"
+      },
+      "id": "f6d37141-b295-48d2-9106-f51281f68a94",
+      "name": "Expand Rows for XLSX",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        -20
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "operation": "toXlsx",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "query-result.xlsx",
+          "headerRow": true,
+          "sheetName": "Results"
+        }
+      },
+      "id": "27253696-6966-4eb3-9b8c-5660df5c5995",
+      "name": "Convert to XLSX",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        500,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9301b216-114a-45f9-94ba-26365ae74827",
+              "leftValue": "={{ $json.output_format }}",
+              "rightValue": "rtf",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "320709d1-d71c-457c-9b56-a1c7e8c99b0c",
+      "name": "Render RTF?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        260,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d=$input.first().json; return (d.rows || []).map(row=>({json:row}));"
+      },
+      "id": "91315bb4-dc3e-4b69-bf20-713077c83295",
+      "name": "Expand Rows for RTF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        80
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "operation": "toRtf",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "query-report.rtf",
+          "headerRow": true
+        }
+      },
+      "id": "b2ff7fa9-fc43-485c-b44f-e1835097e0e4",
+      "name": "Convert to RTF",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        740,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7da442e7-8a2b-452f-a0cc-0f778dd3daf7",
+              "leftValue": "={{ $json.output_format }}",
+              "rightValue": "html",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d33c919a-b7d6-47fe-a7f6-fd45ab14f3f3",
+      "name": "Render HTML?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        500,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "html",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "query-report.html",
+          "encoding": "utf8"
+        }
+      },
+      "id": "23e7db54-2e6e-465b-90a3-47f7b6407f62",
+      "name": "Convert HTML to File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        740,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "37294486-868a-4cc2-bb66-29a352e93984",
+              "leftValue": "={{ $json.output_format }}",
+              "rightValue": "text",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "801939e4-a59d-428a-9012-f41cb9030d39",
+      "name": "Render Text?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        740,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "text",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "query-result.txt",
+          "encoding": "utf8"
+        }
+      },
+      "id": "6c060ded-545a-4f98-b015-d049ea665d3d",
+      "name": "Convert Text to File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        980,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9075ab1f-a769-4c5c-9917-8d8cb8271c85",
+              "leftValue": "={{ $json.output_format }}",
+              "rightValue": "chart",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c035c942-183c-4add-8b13-d95f9e8e312b",
+      "name": "Render Chart?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        980,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.QUICKCHART_URL || 'https://quickchart.io/chart' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {chart:$json.chart_config,width:1200,height:700,format:'png'} }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "87662e8e-3eb5-41b0-875e-2771d53ef9f0",
+      "name": "Render Chart PNG",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        300
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "notesInFlow": true,
+      "notes": "QuickChart is external. Self-host or replace this adapter if query labels are sensitive."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "73ea24cc-1170-4c0d-a10e-2f7be2cbcd2a",
+              "leftValue": "={{ $json.output_format }}",
+              "rightValue": "pdf",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4cec1143-79b1-4edd-acce-f2be54d250ec",
+      "name": "Render PDF?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1220,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "html",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "index.html",
+          "encoding": "utf8"
+        }
+      },
+      "id": "eb7aea50-b2f9-4191-b702-60952514c79a",
+      "name": "HTML File for PDF",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1460,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.GOTENBERG_URL || 'http://gotenberg:3000') + '/forms/chromium/convert/html' }}",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "files",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "dba66de5-3b74-44f7-bab7-daca8457e836",
+      "name": "Render PDF with Gotenberg",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1700,
+        380
+      ],
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "notesInFlow": true,
+      "notes": "Gotenberg may be local or remote. Apply network policy and request-size limits."
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "mode": "once",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "query-result.json",
+          "format": true
+        }
+      },
+      "id": "e4b78eea-ba51-4bfb-9b88-121588f428c3",
+      "name": "Convert JSON to File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1460,
+        520
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Render Output Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Render Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Render Request": {
+      "main": [
+        [
+          {
+            "node": "Render Test Mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Test Mode?": {
+      "main": [
+        [
+          {
+            "node": "Mock Render Plan",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render XLSX?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render XLSX?": {
+      "main": [
+        [
+          {
+            "node": "Expand Rows for XLSX",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render RTF?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Rows for XLSX": {
+      "main": [
+        [
+          {
+            "node": "Convert to XLSX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render RTF?": {
+      "main": [
+        [
+          {
+            "node": "Expand Rows for RTF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render HTML?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Rows for RTF": {
+      "main": [
+        [
+          {
+            "node": "Convert to RTF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render HTML?": {
+      "main": [
+        [
+          {
+            "node": "Convert HTML to File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Text?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Text?": {
+      "main": [
+        [
+          {
+            "node": "Convert Text to File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Chart?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Chart?": {
+      "main": [
+        [
+          {
+            "node": "Render Chart PNG",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render PDF?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render PDF?": {
+      "main": [
+        [
+          {
+            "node": "HTML File for PDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Convert JSON to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML File for PDF": {
+      "main": [
+        [
+          {
+            "node": "Render PDF with Gotenberg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "233e465a-dd81-46d6-b5f0-385ebb470fe3",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [],
+  "description": "Render PostgreSQL assistant receipts as text, XLSX, RTF, HTML, chart PNG, PDF, or JSON."
+}

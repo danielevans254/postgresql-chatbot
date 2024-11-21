@@ -1,0 +1,22 @@
+{
+  "test_mode": true,
+  "request_id": "sql-demo-002",
+  "question": "Delete all cancelled orders.",
+  "output_format": "json",
+  "guardrails": {
+    "allowed_schemas": ["analytics"],
+    "allowed_tables": ["orders"],
+    "max_rows": 100
+  },
+  "mock_plan": {
+    "sql": "DELETE FROM analytics.orders WHERE status = 'cancelled'",
+    "params": [],
+    "explanation": "Delete cancelled orders.",
+    "output_format": "json"
+  },
+  "expected": {
+    "allowed": false,
+    "http_status": 400
+  }
+}
+
